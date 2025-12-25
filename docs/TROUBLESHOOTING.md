@@ -203,26 +203,148 @@ sudo powertop
 
 ---
 
-## 🔄 Btrfs/Timeshift Issues
+## 🔄 Btrfs/Timeshift - Snapshot Recovery
 
-### Timeshift Not Detecting Btrfs
+### Understanding Snapshots
+
+Your system is configured with automatic snapshots:
+- **Boot snapshots** (B): Created at every boot (keeps 5)
+- **Daily snapshots** (D): Created daily (keeps 5)
+- **Weekly snapshots** (W): Created weekly (keeps 3)
+- **Pre-update snapshots**: Created before pacman updates (via timeshift-autosnap)
+
+### List Available Snapshots
 
 ```bash
-# Check mount options
-mount | grep btrfs
+# Using Timeshift CLI
+sudo timeshift --list
 
-# Ensure subvolumes are correct
-# @ for root, @home for home
+# Example output:
+# Num  Name                          Tags  Description
+# 0    2024-12-25_22-30-00           B     Boot snapshot
+# 1    2024-12-25_12-00-00           D     Daily snapshot
+# 2    2024-12-24_12-00-00           O     pacman pre-update
 ```
 
-### Restore from Snapshot
+### Restore from Running System
+
+If your system is still bootable but broken:
 
 ```bash
 # List snapshots
 sudo timeshift --list
 
-# Restore
+# Restore specific snapshot (interactive)
 sudo timeshift --restore
+
+# Or restore specific snapshot by name
+sudo timeshift --restore --snapshot '2024-12-25_22-30-00'
+
+# Reboot after restore
+sudo reboot
+```
+
+### Restore from GRUB Menu (Bootable Snapshots)
+
+If your system boots to GRUB but Hyprland/desktop is broken:
+
+1. **At GRUB menu**, look for **"Arch Linux Snapshots"** submenu
+2. Select a working snapshot to boot from
+3. Once booted into snapshot, make it permanent:
+
+```bash
+# After booting into snapshot, restore it permanently
+sudo timeshift --restore --snapshot-device /dev/nvme0n1p2
+```
+
+### Restore from Live USB (Broken System)
+
+If your system won't boot at all:
+
+1. **Boot from Arch Live USB**
+
+2. **Connect to internet:**
+```bash
+iwctl
+station wlan0 connect YOUR_WIFI
+```
+
+3. **Mount Btrfs root:**
+```bash
+# Find your Btrfs partition
+lsblk -f
+
+# Mount the Btrfs partition (not subvolume)
+mount /dev/nvme0n1p2 /mnt
+
+# List subvolumes
+btrfs subvolume list /mnt
+```
+
+4. **Identify snapshots:**
+```bash
+# Snapshots are in /mnt/timeshift-btrfs/snapshots/
+ls /mnt/timeshift-btrfs/snapshots/
+```
+
+5. **Manual restore (replace @ with snapshot):**
+```bash
+# Backup current broken root
+mv /mnt/@ /mnt/@_broken
+
+# Copy snapshot to new root
+btrfs subvolume snapshot /mnt/timeshift-btrfs/snapshots/2024-12-25_22-30-00/@ /mnt/@
+
+# Optional: Also restore home
+mv /mnt/@home /mnt/@home_broken
+btrfs subvolume snapshot /mnt/timeshift-btrfs/snapshots/2024-12-25_22-30-00/@home /mnt/@home
+
+# Unmount and reboot
+umount /mnt
+reboot
+```
+
+### Create Manual Snapshot Before Risky Changes
+
+```bash
+# Create tagged snapshot with description
+sudo timeshift --create --comments "Before major update" --tags D
+
+# Verify it was created
+sudo timeshift --list
+```
+
+### Timeshift Not Working
+
+```bash
+# Check if Timeshift config exists
+cat /etc/timeshift/timeshift.json
+
+# Check if Btrfs subvolumes are correct
+sudo btrfs subvolume list /
+
+# Expected output should include:
+# @ (or @root) - for root
+# @home - for home
+
+# Check Timeshift service status
+sudo timeshift --check
+
+# Reconfigure if needed
+sudo timeshift-gtk
+```
+
+### Delete Old Snapshots
+
+```bash
+# List snapshots
+sudo timeshift --list
+
+# Delete specific snapshot
+sudo timeshift --delete --snapshot '2024-12-20_12-00-00'
+
+# Delete all snapshots (careful!)
+sudo timeshift --delete-all
 ```
 
 ---

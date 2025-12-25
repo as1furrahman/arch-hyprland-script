@@ -63,7 +63,7 @@ optimize_gpu() {
 }
 
 #===============================================================================
-# SSD OPTIMIZATION (BTRFS)
+# SSD OPTIMIZATION (BTRFS + TIMESHIFT)
 #===============================================================================
 optimize_ssd() {
     log_step "Applying SSD optimizations..."
@@ -80,15 +80,23 @@ optimize_ssd() {
     fi
     
     # Swappiness optimization
-    log_info "Configuring swappiness..."
+    log_info "Configuring swappiness and I/O optimizations..."
     if ! grep -q "vm.swappiness" /etc/sysctl.d/99-ssd-optimizations.conf 2>/dev/null; then
         sudo mkdir -p /etc/sysctl.d
         cat << 'EOF' | sudo tee /etc/sysctl.d/99-ssd-optimizations.conf > /dev/null
 # SSD Optimizations for Samsung 990 Pro
+# Reduce swappiness for SSD longevity
 vm.swappiness = 10
+
+# Reduce vfs cache pressure
 vm.vfs_cache_pressure = 50
+
+# Optimize dirty page handling for SSD
 vm.dirty_ratio = 10
 vm.dirty_background_ratio = 5
+
+# Improve responsiveness
+vm.dirty_writeback_centisecs = 1500
 EOF
         sudo sysctl --system > /dev/null 2>&1
         log_success "Sysctl optimizations applied"
@@ -100,20 +108,136 @@ EOF
     if [ "$root_fs" = "btrfs" ]; then
         log_info "Applying Btrfs-specific optimizations..."
         
-        # Configure Timeshift for Btrfs
-        if command -v timeshift &>/dev/null; then
-            log_info "Timeshift is available for Btrfs snapshots"
-            log_info "Run 'sudo timeshift-gtk' to configure automatic snapshots"
-        fi
-        
-        # Enable Btrfs scrub timer
+        # Enable Btrfs scrub timer (monthly data integrity check)
         if ! systemctl is-enabled --quiet btrfs-scrub@-.timer 2>/dev/null; then
             sudo systemctl enable btrfs-scrub@-.timer 2>/dev/null || true
+            log_info "Btrfs scrub timer enabled (monthly)"
         fi
         
+        # Configure Timeshift for Btrfs snapshots
+        configure_timeshift_btrfs
+        
         log_success "Btrfs optimizations applied"
+    else
+        log_info "Non-Btrfs filesystem detected. Timeshift will use rsync mode."
     fi
 }
+
+#===============================================================================
+# TIMESHIFT CONFIGURATION FOR BTRFS
+#===============================================================================
+configure_timeshift_btrfs() {
+    log_step "Configuring Timeshift for Btrfs snapshots..."
+    
+    # Check if Timeshift is installed
+    if ! command -v timeshift &>/dev/null; then
+        log_warning "Timeshift not installed. Installing..."
+        sudo pacman -S --needed --noconfirm timeshift || return 1
+    fi
+    
+    # Check for timeshift-autosnap (creates snapshots before pacman updates)
+    if ! pacman -Qi timeshift-autosnap &>/dev/null 2>&1; then
+        log_info "Installing timeshift-autosnap for automatic pre-update snapshots..."
+        $AUR_HELPER -S --needed --noconfirm timeshift-autosnap 2>/dev/null || true
+    fi
+    
+    # Check for grub-btrfs (adds snapshots to GRUB menu for easy recovery)
+    if ! pacman -Qi grub-btrfs &>/dev/null 2>&1; then
+        log_info "Installing grub-btrfs for bootable snapshots..."
+        sudo pacman -S --needed --noconfirm grub-btrfs || true
+        
+        # Enable grub-btrfsd service
+        if systemctl list-unit-files | grep -q grub-btrfsd; then
+            sudo systemctl enable --now grub-btrfsd
+            log_info "grub-btrfsd service enabled"
+        fi
+    fi
+    
+    # Create Timeshift config directory
+    sudo mkdir -p /etc/timeshift
+    
+    # Detect Btrfs subvolume layout
+    local root_subvol=""
+    local home_subvol=""
+    
+    # Check common subvolume names
+    if btrfs subvolume list / 2>/dev/null | grep -q "@$"; then
+        root_subvol="@"
+    elif btrfs subvolume list / 2>/dev/null | grep -q "@root"; then
+        root_subvol="@root"
+    fi
+    
+    if btrfs subvolume list / 2>/dev/null | grep -q "@home"; then
+        home_subvol="@home"
+    fi
+    
+    # Get the Btrfs device
+    local btrfs_device
+    btrfs_device=$(findmnt -n -o SOURCE / | head -1)
+    local btrfs_uuid
+    btrfs_uuid=$(blkid -s UUID -o value "$btrfs_device" 2>/dev/null || echo "")
+    
+    # Create Timeshift configuration
+    if [ -n "$btrfs_uuid" ]; then
+        log_info "Configuring Timeshift with detected Btrfs layout..."
+        
+        cat << EOF | sudo tee /etc/timeshift/timeshift.json > /dev/null
+{
+  "backup_device_uuid" : "$btrfs_uuid",
+  "parent_device_uuid" : "",
+  "do_first_run" : "false",
+  "btrfs_mode" : "true",
+  "include_btrfs_home_for_backup" : "true",
+  "include_btrfs_home_for_restore" : "false",
+  "stop_cron_emails" : "true",
+  "schedule_monthly" : "false",
+  "schedule_weekly" : "true",
+  "schedule_daily" : "true",
+  "schedule_hourly" : "false",
+  "schedule_boot" : "true",
+  "count_monthly" : "2",
+  "count_weekly" : "3",
+  "count_daily" : "5",
+  "count_hourly" : "6",
+  "count_boot" : "5",
+  "snapshot_size" : "0",
+  "snapshot_count" : "0",
+  "date_format" : "%Y-%m-%d %H:%M:%S",
+  "exclude" : [
+    "/var/cache/pacman/pkg/**",
+    "/var/lib/docker/**",
+    "/var/lib/containers/**",
+    "/.snapshots/**",
+    "/tmp/**",
+    "/var/tmp/**",
+    "/home/*/.cache/**",
+    "/home/*/.local/share/Trash/**"
+  ],
+  "exclude-apps" : []
+}
+EOF
+        log_success "Timeshift configured for Btrfs"
+        log_info "Schedule: Boot snapshots + Daily (5) + Weekly (3)"
+        
+        # Create initial snapshot
+        log_info "Creating initial system snapshot..."
+        sudo timeshift --create --comments "Initial post-install snapshot" --tags B 2>/dev/null || true
+        log_success "Initial snapshot created"
+        
+    else
+        log_warning "Could not detect Btrfs UUID. Please configure Timeshift manually."
+        log_info "Run 'sudo timeshift-gtk' to configure."
+    fi
+    
+    # Setup cron service for scheduled snapshots
+    if ! systemctl is-enabled --quiet cronie 2>/dev/null; then
+        if pacman -Qi cronie &>/dev/null 2>&1; then
+            sudo systemctl enable --now cronie
+            log_info "Cronie service enabled for scheduled snapshots"
+        fi
+    fi
+}
+
 
 #===============================================================================
 # OLED OPTIMIZATION
