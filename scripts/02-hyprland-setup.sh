@@ -112,9 +112,16 @@ setup_hyprland_config() {
     # Create config directory
     mkdir -p "$hypr_config_dir"
     
-    # Check if config exists
-    if [ ! -f "$hypr_config_dir/hyprland.conf" ]; then
-        log_info "Creating initial Hyprland configuration..."
+    # Check if config exists or needs repair
+    if [ ! -f "$hypr_config_dir/hyprland.conf" ] || grep -q "workspace_swipe_fingers" "$hypr_config_dir/hyprland.conf" 2>/dev/null; then
+        
+        if [ -f "$hypr_config_dir/hyprland.conf" ]; then
+            log_warning "Found broken/deprecated configuration (workspace_swipe_fingers)."
+            log_info "Backing up old config to hyprland.conf.bak..."
+            mv "$hypr_config_dir/hyprland.conf" "$hypr_config_dir/hyprland.conf.bak"
+        fi
+
+        log_info "Creating fresh Hyprland configuration..."
         
         # Copy sample config if available
         if [ -f /usr/share/hyprland/hyprland.conf ]; then
@@ -328,19 +335,9 @@ windowrulev2 = float, class:^(imv)$
 EOF
         fi
         
-        log_success "Initial Hyprland config created"
+        log_success "Hyprland configuration generated"
     else
-        log_info "Hyprland config already exists, verifying..."
-        
-        # Check for deprecated workspace_swipe_fingers and remove it
-        if grep -q "workspace_swipe_fingers" "$hypr_config_dir/hyprland.conf"; then
-            log_warning "Found deprecated option 'workspace_swipe_fingers' in Hyprland config."
-            log_info "Removing deprecated option to check and fix startup error..."
-            sed -i '/workspace_swipe_fingers/d' "$hypr_config_dir/hyprland.conf"
-            log_success "Deprecated option removed"
-        else
-            log_info "Config check passed"
-        fi
+        log_info "Hyprland config exists and passed checks."
     fi
 }
 
