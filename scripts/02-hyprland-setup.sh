@@ -22,6 +22,7 @@ PACKAGES_HYPRLAND=(
     "hyprpicker"
     "hyprshot"
     "hyprsunset"
+    "swww"
     
     # XDG Portals
     "xdg-desktop-portal-hyprland"

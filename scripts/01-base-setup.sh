@@ -61,6 +61,8 @@ PACKAGES_CORE=(
     "tree"
     "man-db"
     "man-pages"
+    "zsh"
+    "zsh-completions"
     
     # File systems
     "btrfs-progs"
