@@ -436,11 +436,18 @@ EOF
     
     log_success "Utility scripts created"
     
-    # Setup sudoers for LED control (optional)
-    log_info "To allow LED control without password, run:"
-    log_info "  sudo visudo -f /etc/sudoers.d/led-control"
-    log_info "And add:"
-    log_info "  $USER ALL=(ALL) NOPASSWD: /usr/bin/tee /sys/class/leds/platform*/brightness"
+    # Setup sudoers for LED control
+    log_info "Configuring passwordless LED control..."
+    
+    local sudoers_file="/etc/sudoers.d/led-control"
+    
+    if [ ! -f "$sudoers_file" ]; then
+        echo "$USER ALL=(ALL) NOPASSWD: /usr/bin/tee /sys/class/leds/platform*/brightness" | sudo tee "$sudoers_file" > /dev/null
+        sudo chmod 440 "$sudoers_file"
+        log_success "Passwordless LED control configured"
+    else
+        log_info "LED control sudoers rule already exists"
+    fi
 }
 
 #===============================================================================
