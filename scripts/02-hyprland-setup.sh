@@ -329,7 +329,17 @@ EOF
         
         log_success "Initial Hyprland config created"
     else
-        log_info "Hyprland config already exists, skipping..."
+        log_info "Hyprland config already exists, verifying..."
+        
+        # Check for deprecated workspace_swipe_fingers and remove it
+        if grep -q "workspace_swipe_fingers" "$hypr_config_dir/hyprland.conf"; then
+            log_warning "Found deprecated option 'workspace_swipe_fingers' in Hyprland config."
+            log_info "Removing deprecated option to check and fix startup error..."
+            sed -i '/workspace_swipe_fingers/d' "$hypr_config_dir/hyprland.conf"
+            log_success "Deprecated option removed"
+        else
+            log_info "Config check passed"
+        fi
     fi
 }
 
