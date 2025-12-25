@@ -123,12 +123,8 @@ setup_hyprland_config() {
 
         log_info "Creating fresh Hyprland configuration..."
         
-        # Copy sample config if available
-        if [ -f /usr/share/hyprland/hyprland.conf ]; then
-            cp /usr/share/hyprland/hyprland.conf "$hypr_config_dir/"
-        else
-            # Create minimal config
-            cat > "$hypr_config_dir/hyprland.conf" << 'EOF'
+        # Always use our known-good template (system sample may have deprecated options)
+        cat > "$hypr_config_dir/hyprland.conf" << 'EOF'
 #===============================================================================
 # HYPRLAND CONFIGURATION
 # For ASUS Zenbook S 13 OLED (UM5302TA)
@@ -333,7 +329,6 @@ windowrulev2 = float, class:^(nm-connection-editor)$
 windowrulev2 = float, title:^(Picture-in-Picture)$
 windowrulev2 = float, class:^(imv)$
 EOF
-        fi
         
         log_success "Hyprland configuration generated"
     else
