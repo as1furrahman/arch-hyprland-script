@@ -33,7 +33,6 @@ PACKAGES_CORE=(
     "vulkan-radeon"
     "lib32-vulkan-radeon"
     "libva-mesa-driver"
-    "mesa-vdpau"
     
     # Audio (PipeWire)
     "pipewire"
@@ -58,7 +57,6 @@ PACKAGES_CORE=(
     
     # Utilities
     "htop"
-    "neofetch"
     "fastfetch"
     "tree"
     "man-db"
