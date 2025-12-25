@@ -72,7 +72,7 @@ PACKAGES_HYPRLAND=(
     "gsettings-desktop-schemas"
     
     # Cursor theme
-    "xcursor-breeze"
+    "breeze"
     
     # Icons
     "papirus-icon-theme"
