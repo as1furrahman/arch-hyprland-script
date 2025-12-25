@@ -51,7 +51,7 @@
 ### Option 1: Full Installation (Recommended)
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/arch-hyprland-script.git
+git clone https://github.com/as1furrahman/arch-hyprland-script.git
 cd arch-hyprland-script
 chmod +x install.sh
 ./install.sh
