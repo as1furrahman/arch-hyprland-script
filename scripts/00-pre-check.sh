@@ -40,18 +40,142 @@ check_uefi() {
 }
 
 #===============================================================================
-# CHECK NETWORK CONNECTIVITY
+# CHECK/SETUP NETWORK CONNECTIVITY
 #===============================================================================
+setup_network() {
+    log_step "Setting up network connectivity..."
+    
+    # Find the first non-loopback interface that is UP or can be brought UP
+    local interface=""
+    
+    # Get list of interfaces
+    for iface in $(ip -o link show | awk -F': ' '{print $2}' | grep -v lo); do
+        # Check if interface exists and is not loopback
+        if [ -n "$iface" ]; then
+            interface="$iface"
+            break
+        fi
+    done
+    
+    if [ -z "$interface" ]; then
+        log_error "No network interface found!"
+        return 1
+    fi
+    
+    log_info "Found network interface: $interface"
+    
+    # Bring interface up if not already
+    if ! ip link show "$interface" | grep -q "state UP"; then
+        log_info "Bringing up interface $interface..."
+        sudo ip link set "$interface" up
+        sleep 2
+    fi
+    
+    # Try dhcpcd first (most common on Arch)
+    if command -v dhcpcd &>/dev/null; then
+        log_info "Configuring network with dhcpcd..."
+        sudo dhcpcd "$interface" -w 2>/dev/null &
+        sleep 5
+        
+        # Check if we got an IP
+        if ip addr show "$interface" | grep -q "inet "; then
+            log_success "Network configured via dhcpcd"
+            return 0
+        fi
+    fi
+    
+    # Try systemd-networkd
+    if systemctl list-unit-files | grep -q systemd-networkd; then
+        log_info "Trying systemd-networkd..."
+        
+        # Create a basic DHCP config if it doesn't exist
+        if [ ! -f /etc/systemd/network/20-wired.network ]; then
+            cat << EOF | sudo tee /etc/systemd/network/20-wired.network > /dev/null
+[Match]
+Name=$interface
+
+[Network]
+DHCP=yes
+EOF
+        fi
+        
+        sudo systemctl start systemd-networkd 2>/dev/null
+        sudo systemctl start systemd-resolved 2>/dev/null
+        sleep 5
+        
+        if ip addr show "$interface" | grep -q "inet "; then
+            log_success "Network configured via systemd-networkd"
+            return 0
+        fi
+    fi
+    
+    # Try dhclient as fallback
+    if command -v dhclient &>/dev/null; then
+        log_info "Trying dhclient..."
+        sudo dhclient "$interface" 2>/dev/null
+        sleep 3
+        
+        if ip addr show "$interface" | grep -q "inet "; then
+            log_success "Network configured via dhclient"
+            return 0
+        fi
+    fi
+    
+    return 1
+}
+
 check_network() {
     log_step "Checking network connectivity..."
     
-    if ! ping -c 1 archlinux.org &>/dev/null; then
-        log_error "No network connectivity!"
-        log_info "Please connect to the internet and try again."
-        exit 1
+    # First check if we already have connectivity
+    if ping -c 1 -W 3 archlinux.org &>/dev/null; then
+        log_success "Network connectivity OK"
+        return 0
     fi
     
-    log_success "Network connectivity OK"
+    log_warning "No network connectivity detected. Attempting to configure..."
+    
+    # Try to setup network
+    if setup_network; then
+        # Wait a moment for network to stabilize
+        sleep 2
+        
+        # Verify connectivity
+        if ping -c 1 -W 5 archlinux.org &>/dev/null; then
+            log_success "Network connectivity established!"
+            return 0
+        fi
+    fi
+    
+    # Still no network - offer manual options
+    log_error "Could not establish network connectivity automatically."
+    echo ""
+    log_info "Please try one of these manual options:"
+    echo ""
+    echo "  For wired connection:"
+    echo "    sudo dhcpcd <interface>     # e.g., sudo dhcpcd enp1s0"
+    echo ""
+    echo "  For WiFi:"
+    echo "    iwctl"
+    echo "    > station wlan0 connect <SSID>"
+    echo ""
+    echo "  To see available interfaces:"
+    echo "    ip link"
+    echo ""
+    
+    read -p "Retry network check? [y/N]: " -r
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        check_network
+        return $?
+    fi
+    
+    read -p "Continue without network (for testing only)? [y/N]: " -r
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        log_warning "Continuing without network - package installation will fail!"
+        return 0
+    fi
+    
+    exit 1
 }
 
 #===============================================================================
